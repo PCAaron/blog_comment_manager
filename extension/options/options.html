@@ -9,12 +9,21 @@
   <div class="wrap">
     <h1 data-i18n="optionsTitle">博客评论外链管理器 - 设置</h1>
 
-    <!-- 卡片一：API Key -->
+    <!-- 卡片一：AI 服务 -->
     <section class="card">
-      <h2 data-i18n="apiCardTitle">OpenRouter API Key</h2>
-      <div class="row">
+      <h2 data-i18n="aiServiceCardTitle">AI 服务</h2>
+      <div class="provider-row" id="ai-provider-row">
+        <label class="provider-opt"><input type="radio" name="ai-provider" value="deepseek" /> <span data-i18n="aiProviderDeepseek">DeepSeek</span></label>
+        <label class="provider-opt"><input type="radio" name="ai-provider" value="openrouter" /> <span data-i18n="aiProviderOpenrouter">OpenRouter</span></label>
+      </div>
+      <p class="desc" data-i18n="aiPrivacyHint">页面摘录与表单 HTML 会发送至所选服务商的 API；Key 仅保存在本机。</p>
+      <div id="key-panel-deepseek" class="key-panel row">
+        <input type="password" id="deepseek-key" data-i18n-ph="deepseekKeyPh" spellcheck="false" autocomplete="off" />
+        <button type="button" id="btn-test-deepseek" class="btn btn-primary" data-i18n="testConn">测试连接</button>
+      </div>
+      <div id="key-panel-openrouter" class="key-panel row" hidden>
         <input type="password" id="api-key" data-i18n-ph="apiKeyPh" placeholder="sk-or-v1-..." spellcheck="false" autocomplete="off" />
-        <button id="btn-test" class="btn btn-primary" data-i18n="testConn">测试连接</button>
+        <button type="button" id="btn-test-openrouter" class="btn btn-primary" data-i18n="testConn">测试连接</button>
       </div>
       <div class="hint" id="test-result"></div>
     </section>
@@ -22,6 +31,7 @@
     <!-- 卡片二：模型配置 -->
     <section class="card">
       <h2 data-i18n="modelsCardTitle">模型配置</h2>
+      <p class="desc" data-i18n="modelsProviderHint">模型 ID 随所选 AI 服务变化；切换服务时会自动重置为默认模型。</p>
       <div class="form-row">
         <label data-i18n="model_discover">链接发现模型</label>
         <div class="desc" data-i18n="model_discover_desc"></div>

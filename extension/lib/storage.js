@@ -3,7 +3,7 @@
  * MV3 service worker 随时可能被杀，所有状态变更后必须 save()。
  * 大数据量表（backlinks / analysis / published）只存 IndexedDB，不进 chrome.storage。
  */
-import { DEFAULT_SETTINGS, LIMITS } from './config.js';
+import { DEFAULT_SETTINGS, LIMITS, normalizeAiProvider } from './config.js';
 import { idbPutAll, idbClear } from './idb.js';
 
 const STORAGE_KEY = 'bcm_store';
@@ -49,7 +49,13 @@ export async function load() {
   const saved = data[STORAGE_KEY];
   if (saved) {
     Object.assign(state, {
-      settings: { ...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), ...saved.settings, models: { ...DEFAULT_SETTINGS.models, ...(saved.settings?.models || {}) }, identity: { ...DEFAULT_SETTINGS.identity, ...(saved.settings?.identity || {}) } },
+      settings: {
+        ...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
+        ...saved.settings,
+        models: { ...DEFAULT_SETTINGS.models, ...(saved.settings?.models || {}) },
+        identity: { ...DEFAULT_SETTINGS.identity, ...(saved.settings?.identity || {}) },
+        openaiCompat: { ...DEFAULT_SETTINGS.openaiCompat, ...(saved.settings?.openaiCompat || {}) },
+      },
       collectState: { ...EMPTY_COLLECT(), ...(saved.collectState || {}) },
       assistantTask: { ...EMPTY_ASSISTANT_TASK(), ...(saved.assistantTask || {}) },
       publishRuntime: saved.publishRuntime || null,
@@ -57,10 +63,21 @@ export async function load() {
       logs: saved.logs || [],
     });
   }
+  migrateAiProvider();
   state.loaded = true;
   await migrateBacklinksToIdb(saved);
   await dropLegacyTasks(saved);
   return state;
+}
+
+/** 多服务商：老数据无 aiProvider 时，有 OpenRouter Key 则保留 openrouter，否则默认 deepseek */
+function migrateAiProvider() {
+  const s = state.settings;
+  if (s.aiProvider) {
+    s.aiProvider = normalizeAiProvider(s.aiProvider);
+    return;
+  }
+  s.aiProvider = String(s.openrouterKey || '').trim() ? 'openrouter' : 'deepseek';
 }
 
 /** 旧版的任务队列（tasks / activeTaskId）已随「发布」Tab 移除：一次性从 storage 清掉 */

@@ -3,10 +3,47 @@
  * 联调时只需要改这个文件，不用动其他逻辑。
  */
 
-export const DEFAULT_MODEL = 'z-ai/glm-5.3-flash';
+/** 默认服务商为 DeepSeek 时的四角色默认模型 ID */
+export const DEFAULT_MODEL = 'deepseek-flash';
+export const OPENROUTER_DEFAULT_MODEL = 'z-ai/glm-5.3-flash';
+
+export const AI_PROVIDERS = ['openrouter', 'deepseek', 'openai_compat'];
+
+/** 各 AI 服务商预设（切换服务商时四角色模型一并重置为 defaultModel） */
+export const PROVIDER_PRESETS = {
+  openrouter: {
+    label: 'OpenRouter',
+    defaultModel: OPENROUTER_DEFAULT_MODEL,
+    apiBase: 'https://openrouter.ai/api/v1',
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    defaultModel: 'deepseek-flash',
+    apiBase: 'https://api.deepseek.com',
+  },
+  openai_compat: {
+    label: 'OpenAI 兼容',
+    defaultModel: '',
+    apiBase: '',
+  },
+};
+
+export function normalizeAiProvider(p) {
+  return AI_PROVIDERS.includes(p) ? p : 'deepseek';
+}
+
+/** 将 settings.models 四个角色设为当前服务商的 defaultModel */
+export function applyProviderModels(settings) {
+  const preset = PROVIDER_PRESETS[normalizeAiProvider(settings.aiProvider)];
+  const model = preset.defaultModel;
+  for (const k of Object.keys(settings.models)) settings.models[k] = model;
+}
 
 export const DEFAULT_SETTINGS = {
+  aiProvider: 'deepseek',
   openrouterKey: '',
+  deepseekKey: '',
+  openaiCompat: { baseUrl: '', apiKey: '' },
   models: {
     discover: DEFAULT_MODEL,   // 链接发现模型：从页面 HTML 提取候选外链
     classify: DEFAULT_MODEL,   // 链接分类模型：判断是否为可评论资源

@@ -1,15 +1,33 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_MODEL, DEFAULT_SETTINGS, PROVIDERS, LIMITS,
+  DEFAULT_MODEL, DEFAULT_SETTINGS, PROVIDERS, LIMITS, PROVIDER_PRESETS, AI_PROVIDERS,
+  applyProviderModels, OPENROUTER_DEFAULT_MODEL,
   ANALYZE_SELECTORS, PUBLISH_SELECTORS, LOGIN_HINTS,
 } from '../extension/lib/config.js';
 
-test('默认四模型角色都指向 DEFAULT_MODEL', () => {
+test('默认 AI 服务商为 DeepSeek，四角色模型为 deepseek-flash', () => {
+  assert.equal(DEFAULT_SETTINGS.aiProvider, 'deepseek');
   const roles = ['discover', 'classify', 'formDetect', 'commentGen'];
   for (const role of roles) {
     assert.equal(DEFAULT_SETTINGS.models[role], DEFAULT_MODEL, `模型角色 ${role} 应有默认值`);
+    assert.equal(DEFAULT_MODEL, 'deepseek-flash');
   }
+});
+
+test('PROVIDER_PRESETS 与 AI_PROVIDERS 对齐', () => {
+  for (const id of AI_PROVIDERS) {
+    assert.ok(PROVIDER_PRESETS[id]?.defaultModel !== undefined || id === 'openai_compat');
+  }
+  assert.equal(PROVIDER_PRESETS.openrouter.defaultModel, OPENROUTER_DEFAULT_MODEL);
+});
+
+test('applyProviderModels 切换 OpenRouter 时重置四角色模型', () => {
+  const s = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+  s.models.classify = 'custom';
+  s.aiProvider = 'openrouter';
+  applyProviderModels(s);
+  assert.equal(s.models.classify, OPENROUTER_DEFAULT_MODEL);
 });
 
 test('Semrush 面板模式配置完整（dash.3ue.co 联调实测值）', () => {

@@ -57,7 +57,7 @@ Semrush 走**面板模式**（已在 dash.3ue.co 联调通过）：先在 dash.3
 
 ## 使用流程
 
-1. **设置**：填 OpenRouter Key（可测试连接），默认四模型均为 `z-ai/glm-5.3-flash`；填写发布身份（昵称/邮箱/默认网址）
+1. **设置**：选择 AI 服务（默认 **DeepSeek**，或 OpenRouter），填对应 API Key 并测试连接；默认模型分别为 `deepseek-flash` / `z-ai/glm-5.3-flash`；填写发布身份（昵称/邮箱/默认网址）
 2. **收集 → 分析（两步独立）**：先在 dash.3ue.co 点 Semrush「打开」并停留在工具页；输入同行域名点「开始收集」——只抓外链数据（自动只保留带「博客」标签的来源，每页间隔 5-10s，收完自动结束，可导出 CSV）；再点「开始分析」——才对数据集逐条访问页面做规则判定（要登录跳过 / 无评论表单不入库 / 有表单命中），命中入库「博客评论资源」
 3. **资源库**：点击 Tab 时直读 IndexedDB `analysis` 表（命中结论 `ready/captcha`，有验证码的资源也算命中），支持单条打开/立即发布（当前标签页打开该资源）/启停，导出 CSV
 4. **发布（助手 Tab）**：顶部选定「当前任务」（目标地址/网站介绍/主关键词，可从模板选择/编辑，可折叠）→ 对当前激活标签页逐步骤执行（获取标题与摘要 / 识别表单 / 生成评论 / 填写表单）→ 人工点 Submit / Skip；「换一个」把当前标签页导航到未发布过的下一条资源
@@ -68,4 +68,4 @@ Semrush 走**面板模式**（已在 dash.3ue.co 联调通过）：先在 dash.3
 ## 说明
 
 - MV3 service worker 会被回收：日志/设置/助手会话等状态落 `chrome.storage.local`，大数据量表（backlinks / analysis / published）只存 IndexedDB（唯一持久层）；`chrome.alarms` 每 30 秒唤醒续跑收集队列；发布由助手页对当前标签页驱动，无后台循环
-- AI 全部走 OpenRouter `/chat/completions`，表单识别/摘要要求 JSON 输出，评论生成为纯文本
+- AI 走所选服务商的 Chat Completions（DeepSeek 或 OpenRouter）；表单识别/摘要要求 JSON 输出，评论生成为纯文本（可含 HTML 链接）

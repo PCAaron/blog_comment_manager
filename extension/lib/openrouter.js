@@ -1,100 +1,10 @@
 /**
- * OpenRouter 网关客户端。四个模型角色按设置里的 models 映射。
+ * AI 业务角色（分类/表单/摘要/评论等）。底层请求走 lib/llm/client 多服务商适配。
  */
-import { getState } from './storage.js';
 import { LIMITS } from './config.js';
+import { chat, chatJSON } from './llm/client.js';
 
-const API_BASE = 'https://openrouter.ai/api/v1';
-let _lastCallAt = 0;
-
-async function throttle() {
-  const wait = LIMITS.aiDelayMs - (Date.now() - _lastCallAt);
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  _lastCallAt = Date.now();
-}
-
-export function getModel(role) {
-  const { settings } = getState();
-  return settings.models[role] || settings.models.classify;
-}
-
-/** 基础对话。返回 assistant 文本。 */
-export async function chat(role, messages, { maxTokens = 1000, temperature = 0.4, json = true } = {}) {
-  const { settings } = getState();
-  const key = settings.openrouterKey;
-  if (!key) throw new Error('未配置 OpenRouter API Key，请先到设置页填写');
-  await throttle();
-  const body = {
-    model: getModel(role),
-    messages,
-    max_tokens: maxTokens,
-    temperature,
-    // 压低思考模型的推理强度：GLM 这类模型默认思考很长，会把 max_tokens 吃光导致 content 为空
-    reasoning: { effort: LIMITS.aiReasoningEffort },
-  };
-  if (json) body.response_format = { type: 'json_object' };
-  // 超时主动中止：请求挂死时 SW 会一直等，助手页步骤按钮就被永久卡住
-  const timeoutMs = Number(settings.aiTimeoutMs) || 20000;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  let res;
-  try {
-    res = await fetch(`${API_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://localhost/extension',
-        'X-Title': 'Blog Comment Backlink Manager',
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-  } catch (e) {
-    if (ctrl.signal.aborted) throw new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)} 秒），可在设置页调整`);
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`OpenRouter ${res.status}: ${text.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const choice = data.choices?.[0];
-  const content = choice?.message?.content;
-  if (typeof content !== 'string' || !content) {
-    // finish_reason=length 且 content 为空：思考 token 吃光了 max_tokens 额度
-    const why = choice?.finish_reason === 'length' ? '（输出被 max_tokens 截断：思考占用了全部额度）' : '';
-    throw new Error(`OpenRouter 返回为空${why}`);
-  }
-  return content;
-}
-
-/** 对话并解析 JSON（要求模型输出 json_object）。解析失败时尝试提取 {...} / [...]。 */
-export async function chatJSON(role, system, user, opts = {}) {
-  const text = await chat(role, [
-    { role: 'system', content: system + '\n只输出合法 JSON，不要输出任何解释文字。' },
-    { role: 'user', content: user },
-  ], { ...opts, json: true });
-  try {
-    return JSON.parse(text);
-  } catch {
-    const m = text.match(/[[{][\s\S]*[\]}]/);
-    if (m) return JSON.parse(m[0]);
-    throw new Error('AI 返回的 JSON 无法解析: ' + text.slice(0, 120));
-  }
-}
-
-/** 测试 API Key 是否有效，成功返回 {ok, label, usage} */
-export async function testKey(key) {
-  const res = await fetch(`${API_BASE}/key`, {
-    headers: { Authorization: `Bearer ${key}` },
-  });
-  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-  const data = await res.json().catch(() => ({}));
-  return { ok: true, label: data?.data?.label || '', usage: data?.data?.usage ?? null, limit: data?.data?.limit ?? null };
-}
+export { chat, chatJSON, getModel, testKey, testConnection, hasConfiguredKey } from './llm/client.js';
 
 // ================= 四个 AI 角色 =================
 
@@ -190,9 +100,6 @@ export function buildCommentWithLink(text, targetUrl, fallbackAnchor) {
 
 /**
  * 评论生成：自然相关评论（语言跟随文章）+ 正文内嵌主关键词变体锚链接（website 字段留空，链接只走正文）。
- * 入参 title/text 是 AI 生成的标题与摘要，articleLang 是识别出的文章语言（提示词里显式指定评论语言）。
- * 链接是硬性要求（不带链接的评论对本工具无效）：模型未输出 {{LINK:}} 占位符时加强措辞重试一次，
- * 仍无占位符则抛错——全自动记失败并保留标签页，半自动助手页报错可重新生成。
  */
 export async function generateComment({ url, title, text }, { targetUrl, siteIntro = '', mainKeyword = '', articleLang = '' } = {}) {
   const system = [
@@ -230,16 +137,12 @@ export async function generateComment({ url, title, text }, { targetUrl, siteInt
   const first = (await call()).trim();
   if (!targetUrl) return first.replace(/\s*\{\{LINK:[^}]+\}\}/g, '');
   if (/\{\{LINK:[^}]*\}\}/.test(first)) return buildCommentWithLink(first, targetUrl, mainKeyword || 'this website');
-  // 不带链接的评论对本工具是无效评论：加强措辞重试一次，仍无占位符则报错（上层记失败/助手页可重试）
   const retry = (await call('注意：上一次输出没有包含 {{LINK:锚文本}} 占位符，这次必须包含且仅一次——从摘要里找与我网站主题最接近的点自然带出。')).trim();
   if (/\{\{LINK:[^}]*\}\}/.test(retry)) return buildCommentWithLink(retry, targetUrl, mainKeyword || 'this website');
   throw new Error('评论未带链接：AI 两次输出都未包含链接占位符');
 }
 
-/**
- * 评论译文：把生成的评论翻译成用户阅读语言（lang ∈ zh/en，与摘要语言一致），
- * 仅供半自动助手页展示给用户看，不参与填表。评论里可能带 <a> 标签，译文输出纯文本。
- */
+/** 评论译文：目标语言同 summaryLang，仅供助手页展示 */
 export async function translateComment(comment, lang = 'zh') {
   const langName = lang === 'en' ? '英文' : '中文';
   const system = [

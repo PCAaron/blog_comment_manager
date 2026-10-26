@@ -7,6 +7,20 @@ import assert from 'node:assert/strict';
 
 LIMITS.aiDelayMs = 0; // 测试不受限流间隔影响
 
+function useOpenRouter() {
+  const st = getState().settings;
+  st.aiProvider = 'openrouter';
+  st.openrouterKey = 'test-key';
+  st.deepseekKey = '';
+}
+
+function useDeepSeek() {
+  const st = getState().settings;
+  st.aiProvider = 'deepseek';
+  st.deepseekKey = 'sk-test';
+  st.openrouterKey = '';
+}
+
 function stubFetch(content, { status = 200 } = {}) {
   globalThis.fetch = async () => ({
     ok: status < 400,
@@ -19,23 +33,40 @@ function stubFetch(content, { status = 200 } = {}) {
 }
 
 test('未配置 API Key 时直接报错', async () => {
+  getState().settings.aiProvider = 'deepseek';
+  getState().settings.deepseekKey = '';
   await assert.rejects(chat('classify', [{ role: 'user', content: 'hi' }]), /API Key/);
 });
 
+test('hasConfiguredKey 随当前服务商判断', async () => {
+  const { hasConfiguredKey } = await import('../extension/lib/llm/client.js');
+  const st = getState().settings;
+  st.aiProvider = 'deepseek';
+  st.deepseekKey = 'sk-x';
+  assert.equal(hasConfiguredKey(st), true);
+  st.deepseekKey = '';
+  assert.equal(hasConfiguredKey(st), false);
+  st.aiProvider = 'openrouter';
+  st.openrouterKey = 'or-key';
+  assert.equal(hasConfiguredKey(st), true);
+});
+
 test('chatJSON 正常解析模型 JSON 输出', async () => {
-  getState().settings.openrouterKey = 'test-key';
+  useOpenRouter();
   stubFetch('{"type":"blog_comment","commentable":true,"reason":"wp评论"}');
   const out = await chatJSON('classify', 'sys', 'user');
   assert.equal(out.type, 'blog_comment');
 });
 
 test('chatJSON 对脏输出（JSON 前后有废话）也能提取', async () => {
+  useOpenRouter();
   stubFetch('好的，以下是结果：{"type":"profile","commentable":false,"reason":"个人主页"} 请查收');
   const out = await chatJSON('classify', 'sys', 'user');
   assert.equal(out.type, 'profile');
 });
 
 test('classifyPage 归一化非法类型为 other', async () => {
+  useOpenRouter();
   stubFetch('{"type":"forum","commentable":true,"reason":"论坛"}');
   const v = await classifyPage({ url: 'https://a.com/1', title: 't', text: 'body' });
   assert.equal(v.type, 'other');
@@ -47,6 +78,7 @@ test('classifyPage 归一化非法类型为 other', async () => {
 });
 
 test('detectForm 透传选择器字段', async () => {
+  useOpenRouter();
   stubFetch('{"comment":"#comment","author":"#author","email":"#email","url":"#url","submit":"#submit","saveInfo":"","linkMethod":"website_field","formSelector":"#commentform"}');
   const f = await detectForm({ formHtml: '<form id="commentform"></form>', pageUrl: 'https://a.com/1' });
   assert.equal(f.comment, '#comment');
@@ -62,16 +94,16 @@ test('getModel 按角色取模型', () => {
 
 test('testKey：401 返回 ok:false，200 返回 ok:true', async () => {
   stubFetch('', { status: 401 });
-  const bad = await testKey('wrong');
+  const bad = await testKey('wrong', 'openrouter');
   assert.equal(bad.ok, false);
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ data: { label: 'my-key', usage: 0.1, limit: 10 } }) });
-  const good = await testKey('right');
+  const good = await testKey('right', 'openrouter');
   assert.equal(good.ok, true);
   assert.equal(good.label, 'my-key');
 });
 
 test('chat 超过 aiTimeoutMs 主动中止并报超时', async () => {
-  getState().settings.openrouterKey = 'test-key';
+  useOpenRouter();
   getState().settings.aiTimeoutMs = 50;
   // fetch 挂死只在 abort 时 reject：验证超时由客户端主动中止
   globalThis.fetch = (url, init) => new Promise((_, rej) => {
@@ -81,7 +113,8 @@ test('chat 超过 aiTimeoutMs 主动中止并报超时', async () => {
   getState().settings.aiTimeoutMs = 20000; // 还原，避免影响其他用例
 });
 
-test('chat 请求体带低强度 reasoning（防思考模型吃光 max_tokens）', async () => {
+test('OpenRouter 请求体带低强度 reasoning（防思考模型吃光 max_tokens）', async () => {
+  useOpenRouter();
   let captured;
   globalThis.fetch = async (url, init) => {
     captured = JSON.parse(init.body);
@@ -91,7 +124,23 @@ test('chat 请求体带低强度 reasoning（防思考模型吃光 max_tokens）
   assert.equal(captured.reasoning?.effort, 'low');
 });
 
+test('DeepSeek 请求关闭思考模式且走官方 chat 地址', async () => {
+  useDeepSeek();
+  let url;
+  let captured;
+  globalThis.fetch = async (u, init) => {
+    url = u;
+    captured = JSON.parse(init.body);
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+  };
+  await chat('classify', [{ role: 'user', content: 'hi' }], { json: false });
+  assert.equal(url, 'https://api.deepseek.com/chat/completions');
+  assert.equal(captured.thinking?.type, 'disabled');
+  assert.equal(captured.reasoning, undefined);
+});
+
 test('content 为空且 finish_reason=length 时报错提示思考占用额度', async () => {
+  useOpenRouter();
   globalThis.fetch = async () => ({
     ok: true, status: 200,
     json: async () => ({ choices: [{ finish_reason: 'length', message: { content: null, reasoning: '...' } }] }),
@@ -100,6 +149,7 @@ test('content 为空且 finish_reason=length 时报错提示思考占用额度',
 });
 
 test('summarizeArticle 返回指定语言的标题与摘要并识别文章语言，空摘要报错', async () => {
+  useOpenRouter();
   const { summarizeArticle } = await import('../extension/lib/openrouter.js');
   stubFetch('{"title":"中文标题","summary":"文章讲了三个要点：A、B、C。","language":"English"}');
   const s = await summarizeArticle({ title: 'English Title', text: '很长很长的正文'.repeat(100), lang: 'zh' });
@@ -115,6 +165,7 @@ test('summarizeArticle 返回指定语言的标题与摘要并识别文章语言
 });
 
 test('generateComment 评论语言跟随文章语言', async () => {
+  useOpenRouter();
   const { generateComment } = await import('../extension/lib/openrouter.js');
   let captured;
   globalThis.fetch = async (url, init) => {
@@ -130,6 +181,7 @@ test('generateComment 评论语言跟随文章语言', async () => {
 });
 
 test('generateComment 链接是硬性要求：无占位符重试一次，仍无则报错', async () => {
+  useOpenRouter();
   const { generateComment } = await import('../extension/lib/openrouter.js');
   // 两次都无占位符 → 报错（不带链接的评论无效）
   globalThis.fetch = async () => ({
@@ -168,6 +220,7 @@ test('generateComment 链接是硬性要求：无占位符重试一次，仍无�
 });
 
 test('translateComment 按目标语言翻译，译文为空时报错', async () => {
+  useOpenRouter();
   const { translateComment } = await import('../extension/lib/openrouter.js');
   let captured;
   globalThis.fetch = async (url, init) => {

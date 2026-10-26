@@ -99,8 +99,20 @@ export const MESSAGES = {
 
   // ---- 设置页 ----
   optionsTitle: { zh: '博客评论外链管理器 - 设置', en: 'Blog Comment Backlink Manager - Settings' },
+  aiServiceCardTitle: { zh: 'AI 服务', en: 'AI Service' },
+  aiProviderDeepseek: { zh: 'DeepSeek（官方 API）', en: 'DeepSeek (official API)' },
+  aiProviderOpenrouter: { zh: 'OpenRouter', en: 'OpenRouter' },
+  aiPrivacyHint: {
+    zh: '页面摘录与表单 HTML 会发送至所选服务商的 API；Key 仅保存在本机。',
+    en: 'Page excerpts and form HTML are sent to the selected provider’s API. Keys stay on this device only.',
+  },
+  deepseekKeyPh: { zh: 'sk-...（DeepSeek API Key）', en: 'sk-... (DeepSeek API Key)' },
   apiCardTitle: { zh: 'OpenRouter API Key', en: 'OpenRouter API Key' },
   apiKeyPh: { zh: 'sk-or-v1-...', en: 'sk-or-v1-...' },
+  modelsProviderHint: {
+    zh: '模型 ID 随所选 AI 服务变化；切换服务时会自动重置为默认模型。',
+    en: 'Model IDs depend on the selected provider; switching resets all roles to defaults.',
+  },
   testConn: { zh: '测试连接', en: 'Test Connection' },
   testOk: { zh: '✓ 连接成功', en: '✓ Connected' },
   testFail: { zh: '✗ 连接失败', en: '✗ Failed' },

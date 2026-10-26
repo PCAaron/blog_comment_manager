@@ -8,7 +8,8 @@ import { backlinksCsv } from '../lib/util.js';
 import { idbGet, idbGetDomain, idbGetAll, idbPut, idbPutAll, idbDelete } from '../lib/idb.js';
 import { CollectController } from './collect.js';
 import { PublishAssistant } from './publish.js';
-import { testKey } from '../lib/openrouter.js';
+import { testConnection, hasConfiguredKey } from '../lib/llm/client.js';
+import { applyProviderModels, normalizeAiProvider } from '../lib/config.js';
 
 const ALARM_TICK = 'bcm-tick';
 
@@ -114,7 +115,7 @@ async function snapshot() {
     logs: st.logs.slice(-200).reverse(),
     settings: {
       language: st.settings.language,
-      hasKey: !!st.settings.openrouterKey,
+      hasKey: hasConfiguredKey(st.settings),
       pageDelayMinMs: st.settings.pageDelayMinMs,
       pageDelayMaxMs: st.settings.pageDelayMaxMs,
       minAscore: st.settings.minAscore,
@@ -373,7 +374,21 @@ async function handleMessage(msg, sender) {
       if (patch.language) st.settings.language = patch.language === 'en' ? 'en' : 'zh';
       if (patch.summaryLang) st.settings.summaryLang = patch.summaryLang === 'en' ? 'en' : 'zh';
       if (typeof patch.logEnabled === 'boolean') st.settings.logEnabled = patch.logEnabled;
+      if (patch.aiProvider) {
+        const next = normalizeAiProvider(patch.aiProvider);
+        if (st.settings.aiProvider !== next) {
+          st.settings.aiProvider = next;
+          applyProviderModels(st.settings);
+        }
+      }
       if (typeof patch.openrouterKey === 'string') st.settings.openrouterKey = patch.openrouterKey.trim();
+      if (typeof patch.deepseekKey === 'string') st.settings.deepseekKey = patch.deepseekKey.trim();
+      if (patch.openaiCompat && typeof patch.openaiCompat === 'object') {
+        if (typeof patch.openaiCompat.baseUrl === 'string') {
+          st.settings.openaiCompat.baseUrl = patch.openaiCompat.baseUrl.trim().replace(/\/+$/, '');
+        }
+        if (typeof patch.openaiCompat.apiKey === 'string') st.settings.openaiCompat.apiKey = patch.openaiCompat.apiKey.trim();
+      }
       if (patch.models && typeof patch.models === 'object') {
         for (const k of Object.keys(st.settings.models)) {
           if (typeof patch.models[k] === 'string') st.settings.models[k] = patch.models[k].trim();
@@ -406,8 +421,11 @@ async function handleMessage(msg, sender) {
       return { ok: true, snapshot: await snapshot() };
     }
 
-    case 'testKey':
-      return await testKey(msg.key || '');
+    case 'testKey': {
+      const st = getState();
+      const provider = msg.provider ? normalizeAiProvider(msg.provider) : normalizeAiProvider(st.settings.aiProvider);
+      return await testConnection(provider, msg.key || '', st.settings);
+    }
 
     // ---- 内容脚本上报 ----
     // 收集数据集导出（侧边栏下载 CSV）：以 IndexedDB 按目标域名读取，跨收集轮次累积
